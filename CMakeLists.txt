@@ -63,7 +63,7 @@ ELSE()
   TARGET_LINK_LIBRARIES(sba g2o_solver_csparse)
 ENDIF()
 
-TARGET_LINK_LIBRARIES(sba -L${g2o_DIR}/lib g2o_core g2o_stuff g2o_types_icp g2o_types_sba cholmod)
+TARGET_LINK_LIBRARIES(sba -L${g2o_DIR}/lib g2o_core g2o_stuff g2o_types_icp g2o_types_slam3d cholmod)
 
 TARGET_LINK_LIBRARIES(sba opencv_core opencv_features2d)
 

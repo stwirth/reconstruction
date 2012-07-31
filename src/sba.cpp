@@ -17,7 +17,7 @@
 #include "g2o/core/robust_kernel_impl.h"
 #include "g2o/core/optimization_algorithm_levenberg.h"
 #include "g2o/solvers/dense/linear_solver_dense.h"
-#include "g2o/types/icp/types_icp.h"
+#include "g2o/types/slam3d/types_slam3d.h"
 #include "g2o/solvers/structure_only/structure_only_solver.h"
 
 #if defined G2O_HAVE_CHOLMOD
@@ -38,7 +38,7 @@ struct View
   std::vector<cv::KeyPoint> key_points_right;
   std::vector<cv::Point3d> points3d;
   std::string filename;
-}
+};
 
 View loadView(const std::string& filename)
 {
@@ -74,6 +74,7 @@ int main(int argc, const char* argv[])
   cout << "DENSE: "<<  DENSE << endl;
 
   g2o::SparseOptimizer optimizer;
+
   optimizer.setVerbose(true);
   g2o::BlockSolver_6_3::LinearSolverType* linearSolver;
 
@@ -104,16 +105,19 @@ int main(int argc, const char* argv[])
   Vector2d principal_point(470,400); // 640x480 image
   double baseline = 0.12;      // 12 cm baseline
 
-  // set up camera params (these are static for all views)
-  g2o::VertexSCam::setKcam(focal_length[0],focal_length[1],
-                           principal_point[0],principal_point[1],
-                           baseline);
+  g2o::ParameterCamera* cam_params = new g2o::ParameterCamera();
+  cam_params->setId(0);
+  cam_params->setKcam(focal_length[0], focal_length[1], principal_point[0], principal_point[1]);
+  optimizer.addParameter(cam_params);
 
+  int vertex_id = 1;
+  std::map<int, int> vertex_id_to_point_id;
   for (size_t i = 0; i < views.size(); ++i)
   {
+    std::cout << "processing view " << i << std::endl;
     const std::vector<cv::KeyPoint>& key_points_left = views[i].key_points_left;
     const std::vector<cv::KeyPoint>& key_points_right = views[i].key_points_right;
-    const std::vectro<cv::Point3d>& points3d = views[i].points3d;
+    const std::vector<cv::Point3d>& points3d = views[i].points3d;
     // add camera vertex
     Vector3d trans(0,0,0);
     Eigen:: Quaterniond q;
@@ -122,44 +126,39 @@ int main(int argc, const char* argv[])
     cam_pose = q;
     cam_pose.translation() = trans;
 
-    g2o::VertexSCam* cam_vertex = new g2o::VertexSCam();
-    int vertex_id = 1;
+    g2o::VertexSE3* cam_vertex = new g2o::VertexSE3();
     cam_vertex->setId(vertex_id++);
     cam_vertex->setEstimate(cam_pose);
-    cam_vertex->setAll();            // set aux transforms
-    cam_vertex->setFixed(true); // fix this vertex
+    if (i == 0) cam_vertex->setFixed(true); // fix the first cam pose
 
     optimizer.addVertex(cam_vertex);
 
     // TODO add edges between cam poses
-
-    std::map<int, int> vertex_id_to_point_id;
-
-    for (size_t i = 0; i < points3d.size(); ++i)
+    for (size_t j = 0; j < points3d.size(); ++j)
     {
-      // TODO look if point already in model
-      // if not in model, add vertex
-      // {
-      g2o::VertexSBAPointXYZ* point_vertex = new g2o::VertexSBAPointXYZ();
+      std::cout << "processing point " << j << " of view " << i << std::endl;
+      g2o::VertexPointXYZ* point_vertex = new g2o::VertexPointXYZ();
       int point_vertex_id = vertex_id++;
       point_vertex->setId(point_vertex_id);
       //point_vertex->setMarginalized(true);
-      //Vector3d estimate(point3d.x, point3d.y, point3d.z);
-      Vector3d estimate(0, 0, 1); // some wrong values
+      Vector3d estimate(points3d[j].x, points3d[j].y, points3d[j].z);
+      //Vector3d estimate(0, 0, 1); // some wrong values
       point_vertex->setEstimate(estimate);
       optimizer.addVertex(point_vertex);
-      vertex_id_to_point_id[point_vertex_id] = i;
-      //}
+      vertex_id_to_point_id[point_vertex_id] = j;
 
       // add edge to camera
-      g2o::Edge_XYZ_VSC* e = new g2o::Edge_XYZ_VSC();
+      g2o::EdgeSE3PointXYZDisparity* e = new g2o::EdgeSE3PointXYZDisparity();
       // TODO dynamic_cast necessary?
-      e->vertices()[0] = dynamic_cast<g2o::OptimizableGraph::Vertex*>(point_vertex);
-      e->vertices()[1] = dynamic_cast<g2o::OptimizableGraph::Vertex*>(cam_vertex);
+      //e->vertices()[0] = cam_vertex;
+      //e->vertices()[1] = point_vertex;
+      e->vertices()[0] = dynamic_cast<g2o::OptimizableGraph::Vertex*>(cam_vertex);
+      e->vertices()[1] = dynamic_cast<g2o::OptimizableGraph::Vertex*>(point_vertex);
       Vector3d z; // measurement
-      z[0] = key_points_left[i].pt.x;
-      z[1] = key_points_left[i].pt.y;
-      z[2] = key_points_right[i].pt.x;
+      z[0] = key_points_left[j].pt.x;
+      z[1] = key_points_left[j].pt.y;
+      double disparity = key_points_left[j].pt.x - key_points_right[j].pt.x;
+      z[2] = disparity / focal_length[0] * baseline; // normalized disparity
       e->setMeasurement(z);
       //e->inverseMeasurement() = -z;
       // variance of the score vector?
@@ -191,6 +190,8 @@ int main(int argc, const char* argv[])
 
   cout << endl;
   */
+  bool saved = optimizer.save("graph.g2o");
+  if (!saved) std::cerr << "ERROR during save!" << std::endl;
   cout << "Performing full BA:" << endl;
   optimizer.optimize(10);
 
