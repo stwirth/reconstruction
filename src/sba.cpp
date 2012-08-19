@@ -101,9 +101,9 @@ int main(int argc, const char* argv[])
   g2o::OptimizationAlgorithmLevenberg* optimization_algorithm = new g2o::OptimizationAlgorithmLevenberg(solver_ptr);
   optimizer.setAlgorithm(optimization_algorithm);
 
-  Vector2d focal_length(550.6352,550.6325); // pixels
-  Vector2d principal_point(470,400); // 640x480 image
-  double baseline = 0.12;      // 12 cm baseline
+  Vector2d focal_length(779.852,779.852); // pixels
+  Vector2d principal_point(522.971,779.852); // 640x480 image
+  double baseline = 0.11866;      // baseline
 
   g2o::ParameterCamera* cam_params = new g2o::ParameterCamera();
   cam_params->setId(0);
@@ -158,7 +158,7 @@ int main(int argc, const char* argv[])
       z[0] = key_points_left[j].pt.x;
       z[1] = key_points_left[j].pt.y;
       double disparity = key_points_left[j].pt.x - key_points_right[j].pt.x;
-      z[2] = disparity / focal_length[0] * baseline; // normalized disparity
+      z[2] = disparity / (focal_length[0] * baseline); // normalized disparity
       e->setMeasurement(z);
       //e->inverseMeasurement() = -z;
       // variance of the score vector?
@@ -166,6 +166,7 @@ int main(int argc, const char* argv[])
 
       g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber();
       e->setRobustKernel(rk);
+      e->setParameterId(0,0);
 
       optimizer.addEdge(e);
     }
